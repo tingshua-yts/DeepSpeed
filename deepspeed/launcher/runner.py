@@ -382,7 +382,7 @@ def main(args=None):
 
     if args.elastic_training:
         assert args.master_addr != "", "Master Addr is required when elastic training is enabled"
-
+    # 获取hostfile
     resource_pool = fetch_hostfile(args.hostfile)
 
     # respect CUDA_VISIBLE_DEVICES for a single node and no explicit resource filters
@@ -416,11 +416,13 @@ def main(args=None):
     if not multi_node_exec and args.num_nodes > 1:
         raise ValueError("Num nodes is >1 but no extra nodes available via hostfile")
 
+    # 在hostfile的基础上处理inclusion和exclusion
     active_resources = parse_inclusion_exclusion(resource_pool,
                                                  args.include,
                                                  args.exclude)
     env = os.environ.copy()
 
+    # 进行ssh检查
     # validate that passwordless-ssh is workly properly with this hostfile
     if multi_node_exec and not args.no_ssh_check:
         first_host = list(active_resources.keys())[0]
@@ -435,6 +437,7 @@ def main(args=None):
                 f"Using hostfile at {args.hostfile} but host={first_host} was not reachable via ssh. If you are running with a single node please remove {args.hostfile} or setup passwordless ssh."
             )
 
+    # 计算master addr
     if not args.master_addr:
         assert multi_node_exec
         first_host = list(active_resources.keys())[0]
@@ -457,6 +460,7 @@ def main(args=None):
         run_autotuning(args, active_resources)
         return
 
+    # 处理设置了num_nodes 和num_gpus的场景
     if args.num_nodes > 0:
         updated_active_resources = collections.OrderedDict()
         for count, hostname in enumerate(active_resources.keys()):
@@ -471,6 +475,7 @@ def main(args=None):
             updated_active_resources[hostname] = list(range(args.num_gpus))
         active_resources = updated_active_resources
 
+    # 弹性训练的场景
     if args.elastic_training:
         assert not args.no_local_rank, "--no_local_rank argument is not supported in Elastic training"
 
@@ -480,6 +485,7 @@ def main(args=None):
     multi_node_exec = args.force_multi or len(active_resources) > 1
 
     if not multi_node_exec:
+        # 单机场景
         deepspeed_launch = [
             sys.executable,
             "-u",
@@ -506,7 +512,9 @@ def main(args=None):
             deepspeed_launch.append(f"--min_elastic_nodes={args.min_elastic_nodes}")
         cmd = deepspeed_launch + [args.user_script] + args.user_args
     else:
+        # 多机场景
         args.launcher = args.launcher.lower()
+        # 设置launcher的使用的分布式任务工具
         if args.launcher == PDSH_LAUNCHER:
             runner = PDSHRunner(args, world_info_base64)
         elif args.launcher == OPENMPI_LAUNCHER:
@@ -532,6 +540,7 @@ def main(args=None):
             if any([var.startswith(name) for name in EXPORT_ENVS]):
                 runner.add_export(var, env[var])
 
+        # 处理DeepSpeed的envs
         for environ_path in DEEPSPEED_ENVIRONMENT_PATHS:
             environ_file = os.path.join(environ_path, DEEPSPEED_ENVIRONMENT_NAME)
             if os.path.isfile(environ_file):
@@ -539,12 +548,14 @@ def main(args=None):
                     for var in fd.readlines():
                         key, val = var.split('=', maxsplit=1)
                         runner.add_export(key, val)
-
+        # 获取launcher cmd
         if args.launcher == PDSH_LAUNCHER:
+            # 本质是调用了deepspeed.launcher.launch来在每个node上执行启动脚本
             cmd, kill_cmd = runner.get_cmd(env, active_resources)
         else:
             cmd = runner.get_cmd(env, active_resources)
 
+    # 启动launcher任务
     logger.info(f"cmd = {' '.join(cmd)}")
     result = subprocess.Popen(cmd, env=env)
 
@@ -557,6 +568,7 @@ def main(args=None):
         time.sleep(1)
         sys.exit(1)
 
+    # 等待launcher结果
     if args.launcher == PDSH_LAUNCHER:
         signal.signal(signal.SIGINT, sigkill_handler)
 

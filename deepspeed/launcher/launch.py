@@ -134,17 +134,20 @@ def main():
         if "NCCL" in k:
             logger.info(f"{args.node_rank} {k}={current_env[k]}")
 
+    # 获取world info
     if args.world_info == "None":
         raise ValueError("world_info can not be None")
     world_info = base64.urlsafe_b64decode(args.world_info)
     world_info = json.loads(world_info)
 
+    # 获取local rank和num_local_procs
     logger.info(f"WORLD INFO DICT: {world_info}")
     node_list = list(world_info.keys())
     args.nnodes = len(node_list)
     local_node = node_list[args.node_rank]
     local_gpu_ids = world_info[local_node]
     num_local_procs = len(local_gpu_ids)
+
     logger.info(
         f"nnodes={args.nnodes}, num_local_procs={num_local_procs}, node_rank={args.node_rank}"
     )
@@ -163,6 +166,7 @@ def main():
     current_env["CUDA_VISIBLE_DEVICES"] = ",".join(map(str, local_gpu_ids))
     logger.info(f"Setting CUDA_VISIBLE_DEVICES={current_env['CUDA_VISIBLE_DEVICES']}")
 
+    # 设置pytorch分布式变量
     # set PyTorch distributed related environmental variables
     current_env["MASTER_ADDR"] = args.master_addr
     current_env["MASTER_PORT"] = str(args.master_port)
@@ -203,6 +207,7 @@ def main():
     cmd = []
 
     if not args.enable_elastic_training:
+        # 没有使用弹性的场景
         if args.enable_each_rank_log != "None":
             # prepare the log path and the file name prefix
             if os.path.isfile(args.enable_each_rank_log):
@@ -253,7 +258,7 @@ def main():
                 process = subprocess.Popen(cmd, env=current_env)
 
             processes.append(process)
-    else:
+    else: # 弹性训练场景，使用功能DSElasticAgent来启动training script
         from ..elasticity import DSElasticAgent
         from torch.distributed.elastic.rendezvous import RendezvousParameters
         from torch.distributed.elastic.agent.server.api import WorkerSpec
