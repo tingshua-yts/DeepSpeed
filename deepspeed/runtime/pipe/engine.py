@@ -71,6 +71,7 @@ class PipelineEngine(DeepSpeedEngine):
         # used to disable the pipeline all-reduce when used with 1-bit Adam/1-bit LAMB
         self.pipeline_enable_backward_allreduce = True
 
+        # TODO review elastic的支持情况
         if self.elasticity_enabled():
             if not self.is_elastic_model_parallel_supported():
                 assert not self.elasticity_enabled(), "Elasticity is not currently supported" \
@@ -79,12 +80,14 @@ class PipelineEngine(DeepSpeedEngine):
         # pipeline step for logging
         self.log_batch_step_id = -1
 
+        # 设置micro batch size
         self.micro_batch_size = self.train_micro_batch_size_per_gpu()
         self.micro_batches = self.gradient_accumulation_steps()
 
         # Set Grid and Communication Groups
         self.grid = self.module._grid
         if self.grid.get_global_rank() == 0:
+            # CONFIG: micro_batches=64 micro_batch_size=4, total batch为256
             logger.info(f'CONFIG: micro_batches={self.micro_batches} '
                         f'micro_batch_size={self.micro_batch_size}')
 
@@ -112,6 +115,7 @@ class PipelineEngine(DeepSpeedEngine):
 
         # PipelineEngine needs to handle data loading specially due to only the first
         # and last stages loading inputs/labels. We construct a sampler that uses
+        # 创建Iterator
         if self.training_data:
             self._build_data_iter(self.training_data)
 
@@ -124,7 +128,9 @@ class PipelineEngine(DeepSpeedEngine):
         self.is_pipe_partitioned = self.is_model_parallel
         self.is_grad_partitioned = self.is_model_parallel
 
+        # 获取当前stage的所有变量，TODO：如何做到获取的都是当前stage的
         model_parameters = filter(lambda p: p.requires_grad, self.module.parameters())
+        # 获取当前stage的所有参数
         num_params = sum([p.numel() for p in model_parameters])
         unique_params = num_params
         # Subtract tied parameters if we don't own them
@@ -136,11 +142,19 @@ class PipelineEngine(DeepSpeedEngine):
             unique_params -= tied_params
         params_tensor = torch.LongTensor(data=[num_params,
                                                unique_params]).to(self.device)
+
+        # 这里是为了模型切分进行的all reduce,获取所有参数，TODO：为啥要做allreduce
         dist.all_reduce(params_tensor, group=self.grid.get_model_parallel_group())
         params_tensor = params_tensor.tolist()
         total_params = params_tensor[0]
         unique_params = params_tensor[1]
         if self.grid.data_parallel_id == 0:
+            # RANK=0 STAGE=0 LAYERS=19 [0, 19) STAGE_PARAMS=40222528 (40.223M)
+            #                                  TOTAL_PARAMS=57044810 (57.045M)
+            #                                  UNIQUE_PARAMS=57044810 (57.045M)
+            # RANK=1 STAGE=1 LAYERS=3 [19, 22) STAGE_PARAMS=16822282 (16.822M)
+            #                                  TOTAL_PARAMS=57044810 (57.045M)
+            #                                  UNIQUE_PARAMS=57044810 (57.045M)
             logger.info(f'RANK={self.global_rank} '
                         f'STAGE={self.stage_id} '
                         f'LAYERS={self.module._local_stop - self.module._local_start} '
@@ -150,6 +164,7 @@ class PipelineEngine(DeepSpeedEngine):
                         f'UNIQUE_PARAMS={unique_params} ({unique_params/1e6:0.3f}M)')
 
         #initialize peer-2-peer communication and allreduce groups
+        # 如果配置了模型并行,则创建p2p的通信接口
         if self.is_pipe_parallel:
             p2p.init_process_groups(self.grid)
 

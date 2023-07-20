@@ -110,6 +110,7 @@ def test_easy_balance_uniform():
     parts = partition_uniform(len(weights), P)
     assert_valid_partition(weights, parts, P)
     costs = get_partition_weights(weights, parts)
+    # 每个partition被平均分配了两个weight
     assert all(c == 2 for c in costs)
 
 

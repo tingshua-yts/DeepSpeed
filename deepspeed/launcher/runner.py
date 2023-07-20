@@ -404,6 +404,7 @@ def main(args=None):
             raise ValueError("Cannot specify num_nodes/gpus with include/exclude")
 
     multi_node_exec = True
+    # 单node的处理方式，将resource_pool中设置仅有localhost，master_addr为127.0.0.1
     if not resource_pool:
         resource_pool = {}
         device_count = get_accelerator().device_count()
@@ -455,6 +456,7 @@ def main(args=None):
                 f"Unable to detect suitable master address via `hostname -I`, please manually specify one via --master_addr"
             )
         logger.info(f"Using IP address of {args.master_addr} for node {first_host}")
+        logger.debug("AAAAAAAA")
 
     if args.autotuning != "":
         run_autotuning(args, active_resources)

@@ -542,15 +542,15 @@ def get_world_group():
 
 
 def get_world_size(group=None) -> int:
-    """
-    Returns the number of processes in the current process group
-    Args:
-        group (ProcessGroup, optional): The process group to work on. If None,
-            the default process group will be used.
-    Returns:
-        The world size of the process group
-        -1, if not part of the group
-    """
+    # """
+    # Returns the number of processes in the current process group
+    # Args:
+    #     group (ProcessGroup, optional): The process group to work on. If None,
+    #         the default process group will be used.
+    # Returns:
+    #     The world size of the process group
+    #     -1, if not part of the group
+    # """
     global cdb
 
     assert cdb is not None and cdb.is_initialized(), 'DeepSpeed backend not set, please initialize it using init_process_group()'
@@ -635,6 +635,7 @@ def init_distributed(dist_backend=None,
         # Initialize torch distributed if needed
         required_env = ["RANK", "WORLD_SIZE", "MASTER_ADDR", "MASTER_PORT", "LOCAL_RANK"]
         if auto_mpi_discovery and not all(map(lambda v: v in os.environ, required_env)):
+            # 通过mpi的python interface来获取
             if verbose:
                 utils.logger.info(
                     "Not using the DeepSpeed or dist launchers, attempting to detect MPI environment..."

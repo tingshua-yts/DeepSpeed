@@ -294,6 +294,7 @@ class DeepSpeedEngine(Module):
         self.pipeline_parallelism = isinstance(model, PipelineModule)
 
         # Configure distributed model
+        # 进行fp16/MoE/ToDevice/broadcast操作
         self._configure_distributed_model(model)
 
         self._get_model_parameters()
@@ -332,6 +333,7 @@ class DeepSpeedEngine(Module):
         if model_parameters is None:
             model_parameters = self.module.parameters()
 
+        # 配置优化器
         if has_optimizer:
             self._configure_optimizer(optimizer, model_parameters)
             self._configure_lr_scheduler(lr_scheduler)
@@ -1119,7 +1121,7 @@ class DeepSpeedEngine(Module):
 
     def _configure_distributed_model(self, model):
         self._set_client_model(model)
-
+        # 处理fp16场景
         if self.fp16_enabled():
             if self.zero_optimization_partition_weights() and any(
                 [hasattr(param,
@@ -1143,10 +1145,12 @@ class DeepSpeedEngine(Module):
         else:
             self.__check_params(self.module, torch.float)
 
+        # 迁移模型到对应device
         if not self.dont_change_device:
             self.module.to(self.device)
 
         # MoE related initialization
+        # MoE处理
         for _, module in self.module.named_modules():
             if isinstance(module, MoE):
                 self.has_moe_layers = True
@@ -1179,6 +1183,7 @@ class DeepSpeedEngine(Module):
         self.expert_parallel_group = groups._get_expert_parallel_group_dict()
         self.expert_data_parallel_group = groups._get_expert_data_parallel_group_dict()
 
+        # 从rank 0广播模型参数
         if not self.amp_enabled():
             self._broadcast_model()
 

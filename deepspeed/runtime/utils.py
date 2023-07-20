@@ -565,22 +565,25 @@ def prefix_sum_inc(weights):
         weights_[x] += weights_[x - 1]
     return weights_
 
-
+# num_items为layers的个数
 def partition_uniform(num_items, num_parts):
     parts = [0] * (num_parts + 1)
     # First check for the trivial edge case
     if num_items <= num_parts:
+        # 遍历所有的num_parts
         for p in range(num_parts + 1):
             parts[p] = min(p, num_items)
         return parts
 
     chunksize = floor(num_items / num_parts)
     for p in range(num_parts):
+        # p为stage id，感觉value为当前stage最后一个layer的id
         parts[p] = min(chunksize * p, num_items)
     parts[num_parts] = num_items
     return parts
 
-
+# weights为做个前缀累加的params count
+# bottelneck是每一个stage可以存放的最大参数
 def _lprobe(weights, num_parts, bottleneck):
     num_items = len(weights)
     total_weight = weights[-1]
@@ -599,10 +602,10 @@ def _lprobe(weights, num_parts, bottleneck):
             step += chunksize
 
         # Find the end index of partition p
-        parts[p] = bisect_left(weights,
+        parts[p] = bisect_left(weights, # 在weights中查找应该插入bsum的位置
                                bsum,
-                               lo=step - chunksize,
-                               hi=min(step,
+                               lo=step - chunksize, # 起始位置
+                               hi=min(step, # 终止位置
                                       num_items))
         # Nothing more to partition, return early
         if parts[p] == num_items:
@@ -618,7 +621,8 @@ def _lprobe(weights, num_parts, bottleneck):
 
 def _rb_partition_balanced(weights, num_parts, eps):
     total_weight = weights[-1]
-    lower = total_weight / num_parts  # best case heaviest partition
+     # best case heaviest partition, 表示最好的分配策略
+    lower = total_weight / num_parts
     upper = total_weight  # worst case heaviest partition
 
     # Do a binary search for the best partitioning
@@ -626,21 +630,25 @@ def _rb_partition_balanced(weights, num_parts, eps):
         mid = lower + ((upper - lower) / 2)
         parts, success = _lprobe(weights, num_parts, mid)
         if success:
+            # 如果切分成功了，则尝试是否能降低upper
             upper = mid
         else:
+            # 如果失败了，则提高lower
             lower = mid + eps
     return upper
 
-
+# weight为一个list，每个元素为对应layers的params count
 def partition_balanced(weights, num_parts, eps=1e-3):
     num_items = len(weights)
     # First check for the trivial edge case
     if num_items <= num_parts:
         return partition_uniform(num_items, num_parts)
 
+    # 计算前缀和，prefix_sum_inc([3,4,5]) -> [3, 3+4, 3+4+5]
     weights_ = prefix_sum_inc(weights)
 
     # Find the smallest bottleneck (weight of heaviest partition)
+    # 使用二分查找，寻找一个最小的阈值bottleneck，其为每个stage能够分配weights个数的上限
     bottleneck = _rb_partition_balanced(weights_, num_parts, eps=eps)
 
     # Now compute that partitioning

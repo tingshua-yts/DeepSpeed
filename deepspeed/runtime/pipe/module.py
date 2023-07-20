@@ -208,7 +208,7 @@ class PipelineModule(nn.Module):
 
         self.activation_checkpoint_interval = activation_checkpoint_interval
         self.activation_checkpoint_func = activation_checkpoint_func
-
+    # 将当前stagy应c处理的layers放到self.forward_funcs中
     def _build(self):
         specs = self._layer_specs
 
@@ -377,6 +377,7 @@ class PipelineModule(nn.Module):
             self.parts = ds_utils.partition_uniform(num_items=num_layers,
                                                     num_parts=num_stages)
         elif method == 'parameters':
+            # 返回每一层的params的count
             param_counts = self._count_layer_params()
             self.parts = ds_utils.partition_balanced(weights=param_counts,
                                                      num_parts=num_stages)
@@ -416,6 +417,7 @@ class PipelineModule(nn.Module):
                 except AttributeError:
                     print(f'  loss: {self.loss_fn.__class__.__name__}')
 
+        # 设置当前stage应该处理的layers
         self._set_bounds(start=self.parts[stage_id], stop=self.parts[stage_id + 1])
 
     def allreduce_tied_weight_gradients(self):

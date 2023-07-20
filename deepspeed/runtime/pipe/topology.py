@@ -34,12 +34,17 @@ class ProcessTopology:
         self.ProcessCoord = namedtuple('ProcessCoord', axes)
 
         self.mapping = {}
+        # 所有dim的list
         ranges = [range(d) for d in dims]
-        # example: 1, (0,0,1)
+        # example: 1, (0,1)，计算所有dim的笛卡尔积
         for global_rank, coord in enumerate(cartesian_product(*ranges)):
             key = {axis: coord[self.axes.index(axis)] for axis in self.axes}
+            # key={
+            #     'pipe': 0,
+            #     'data':1
+            # }
             key = self.ProcessCoord(**key)
-            # for example, {ProcessCoord(row=0, col=1) : 1}
+            # for example, {ProcessCoord(pipe=0, data=1) : 1}
             self.mapping[key] = global_rank
 
     def get_rank(self, **coord_kwargs):
@@ -153,11 +158,15 @@ class ProcessTopology:
         lists = []
 
         # Construct all combinations of coords with other_axes
+        # 返回other_axes的dim
         ranges = [range(self.get_dim(a)) for a in other_axes]
+        # 对所有other_axes执行笛卡尔积
         for coord in cartesian_product(*ranges):
+            # 获取other_keys对应的坐标
             other_keys = {a: coord[other_axes.index(a)] for a in other_axes}
             # now go over all ranks in `axis`.
             sub_list = []
+            # 遍历axis的dim大小维度
             for axis_key in range(self.get_dim(axis)):
                 key = self.ProcessCoord(**other_keys, **{axis: axis_key})
                 sub_list.append(self.mapping[key])
@@ -296,9 +305,11 @@ class PipelineParallelGrid:
 
         # Create new ProcessGroups for all model parallelism. DeepSpeedLight uses these
         # to detect overflow, etc.
+        # 为data 维度，来构建proces group
         self.ds_model_proc_group = None
         self.ds_model_rank = -1
         for dp in range(self.data_parallel_size):
+            # 获取data 维度的，idx坐标下的所有rank
             ranks = sorted(self._topo.get_axis_list(axis='data', idx=dp))
             if self.global_rank == 0:
                 #print(f'RANK={self.global_rank} building DeepSpeed model group: {ranks}')
@@ -312,11 +323,14 @@ class PipelineParallelGrid:
         assert self.ds_model_proc_group is not None
 
         # Create new ProcessGroup for gradient all-reduces - these are the data parallel groups
+        # 针对于DDP的场景，沿着data的坐标，所有rank来创建一个group以进行all-reduce；
+        # 也就是说data的id为0的所有worker会构建group、为1的所有worker会构建group，以此类推
         self.dp_group = []
         self.dp_groups = self._topo.get_axis_comm_lists('data')
         for g in self.dp_groups:
             proc_group = dist.new_group(ranks=g)
             if self.global_rank in g:
+                # 找到自己所在的那个process group
                 self.dp_group = g
                 self.dp_proc_group = proc_group
 

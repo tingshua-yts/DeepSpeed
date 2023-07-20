@@ -96,12 +96,13 @@ class ReplaceWithTensorSlicing:
             if src_shape[0] == dst_shape[0] and src_shape[1] == dst_shape[1]:
                 dst.data.copy_(src)
             else:
+                # 例如src_share 为[4,2], dst_shape为[2,2]
                 if src_shape[self.in_dim] != dst_shape[self.in_dim]:
                     self.merge_assert(src_shape[self.in_dim], dst_shape[self.in_dim])
                     weight_split = torch.split(
                         src,
-                        dst_shape[self.in_dim],
-                        dim=self.in_dim)[self.gpu_index].to(
+                        dst_shape[self.in_dim],# 该值为2，也就是将src按照2进行切分
+                        dim=self.in_dim)[self.gpu_index].to(# 在切分完成的list中寻找属于自己的slice，并转换到gpu device上
                             get_accelerator().current_device_name()).contiguous()
                 else:
                     self.merge_assert(src_shape[self.out_dim], dst_shape[self.out_dim])
@@ -562,6 +563,7 @@ def replace_transformer_layer(orig_layer_impl,
                 pbar.update(1)
         else:
             import gc
+            # 针对模型并行的checkpoint，每个模型并行的维度checkpoint进行统一的加载
             num_checkpoints = len(ckpt_list) // ckpt_mp_size
             tp_split_size = (world_size / ckpt_mp_size)
             sd_offset = int(rank / tp_split_size)
